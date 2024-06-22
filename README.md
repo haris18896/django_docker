@@ -1,6 +1,6 @@
 # Django Docker
 
-## Authenticate with Docker HUB
+### Authenticate with Docker HUB
 1. Go to [hub.docker.com](https://hub.docker.com) and login
 2. Go to the `Account Settings` from your profile
 3. Navigate to the `security`
@@ -10,7 +10,7 @@
     * DOCKERHUB_USER
     * DOCKERHUB_TOKEN
 
-## Using Docker with Django
+### Using Docker with Django
 1. Create a Docker file
 2. choose a base image
 3. install dependencies
@@ -22,7 +22,7 @@
     * Volume Map
 7. Run all commands through docker compose `docker-compose run --rm app sh -c "python manage.py collectstatic"`
 
-## Requirements
+### Requirements
 1. Create a `requirements.txt` file in the root of your repository
    * we can automatically add dependencies to the requirements by following the below commands
    * `python -m venv venv`
@@ -72,7 +72,7 @@ USER django-user
    * docker build .
 
 
-## Docker Compose
+### Docker Compose
 1. create a `docker-compose.yml` file in the root directory
 2. after configuring run the following command `docker-compose build`
 3. add `requirements.dev.txt` to the root directory, it's for local development, these aren't gonna be needed on image
@@ -96,7 +96,7 @@ services:
 ```
 
 
-## Configuring flake8
+### Configuring flake8
 1. Create a `.flake8` file in the `app` directory
 2. after adding the configurations to the `.flake8` file run the following command
    * `docker-compose run --rm app sh -c "flake8"`
@@ -111,10 +111,11 @@ exclude =
     settings.py
 ```
 
-## Creating a django project in app
+### Creating a django project in app
 1. Run the following command to create a django project
    * `docker-compose run --rm app sh -c "django-admin startproject app ."`
 2. To run our services run the following command
    * `docker-compose up`
 3. After that check the browser and run `127.0.0.1:8000` the app should run at this point
 
+# Configuring GitHub Actions
