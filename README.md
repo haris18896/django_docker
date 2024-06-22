@@ -20,7 +20,7 @@
     * Name
     * Mapping
     * Volume Map
-7. Run all commands through docker compose `docker-compose run --rm <django-app> sh -c "python manage.py collectstatic"`
+7. Run all commands through docker compose `docker-compose run --rm app sh -c "python manage.py collectstatic"`
 
 ## Requirements
 1. Create a `requirements.txt` file in the root of your repository
@@ -94,3 +94,27 @@ services:
     command: >
       sh -c "python manage.py runserver 0.0.0.0:8000"
 ```
+
+
+## Configuring flake8
+1. Create a `.flake8` file in the `app` directory
+2. after adding the configurations to the `.flake8` file run the following command
+   * `docker-compose run --rm app sh -c "flake8"`
+
+
+```.flake8
+[flake8]
+exclude =
+    migrations,
+    __pycache__,
+    manage.py,
+    settings.py
+```
+
+## Creating a django project in app
+1. Run the following command to create a django project
+   * `docker-compose run --rm app sh -c "django-admin startproject app ."`
+2. To run our services run the following command
+   * `docker-compose up`
+3. After that check the browser and run `127.0.0.1:8000` the app should run at this point
+
