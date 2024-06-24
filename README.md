@@ -119,3 +119,34 @@ exclude =
 3. After that check the browser and run `127.0.0.1:8000` the app should run at this point
 
 # Configuring GitHub Actions
+* GitHub's actions are like automation tools Travis-CI, GitLab CI/CD, Jenkins
+* Run jobs when code changes
+* It handles Deployment, Code Linting, and Unit Tests
+
+1. Create `.github/workflows/checks.yml` file in the root of your repository
+
+```yml
+---
+name: Checks
+
+on: [push] # Trigger
+
+jobs:
+  test-lint:
+    name: Test and Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login/action@v3.2.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Test
+        run: docker-compose run --rm app sh -c "python manage.py test"
+      - name: Lint
+        run: docker-compose run --rm app sh -c "flake8"
+```
+
+### Setting up GitHub Creds
