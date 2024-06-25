@@ -124,6 +124,10 @@ exclude =
 * It handles Deployment, Code Linting, and Unit Tests
 
 1. Create `.github/workflows/checks.yml` file in the root of your repository
+2. After adding the checks.yml file make sure the username and password matches the one you have added as a secret in the repository settings in Github
+3. After that add and commit you changes and push to `main` branch
+4. after that check the `Acitons` in your github repository, your actions should have been configured their
+5. 
 
 ```yml
 ---
@@ -149,4 +153,4 @@ jobs:
         run: docker-compose run --rm app sh -c "flake8"
 ```
 
-### Setting up GitHub Creds
+
