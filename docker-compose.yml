@@ -1,5 +1,5 @@
-version: "3.3"
-name: "recipe-app-api"
+version: "3.8"
+
 
 services:
   app:
