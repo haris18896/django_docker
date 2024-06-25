@@ -76,6 +76,8 @@ USER django-user
 1. create a `docker-compose.yml` file in the root directory
 2. after configuring run the following command `docker-compose build`
 3. add `requirements.dev.txt` to the root directory, it's for local development, these aren't gonna be needed on image
+4. Run `docker-compose build --build-arg DEV=true`
+5. Run `docker-compose run --rm app sh -c "flake8"`
 
 ```yml
 version: "3.12.4"
@@ -146,6 +148,8 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker-compose build --build-arg DEV=true
       - name: Test
         run: docker-compose run --rm app sh -c "python manage.py test"
       - name: Lint
