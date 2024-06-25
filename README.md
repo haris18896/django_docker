@@ -127,7 +127,6 @@ exclude =
 2. After adding the checks.yml file make sure the username and password matches the one you have added as a secret in the repository settings in Github
 3. After that add and commit you changes and push to `main` branch
 4. after that check the `Acitons` in your github repository, your actions should have been configured their
-5. 
 
 ```yml
 ---
