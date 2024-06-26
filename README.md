@@ -873,3 +873,45 @@ class UserAdmin(BaseUserAdmin):
 
 admin.site.register(models.User, UserAdmin)
 ```
+
+
+# `API Documentation`
+1. Auto generate docs in Django REST Framework
+   * `drf-spectacular`
+2. It generates schema documentation
+3. Browsable web interface
+   * Make test requests
+   * Handle authentication
+
+* first add `drf-spectacular>=0.27.2` to the requirements
+* Run the `docker-compose build`
+* Add the `drf-spectacular` to the settings.py to installed apps
+
+```py
+# settings.py
+INSTALLED_APPS = [
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "core",
+    "drf_spectacular"
+]
+
+# / *****************
+# / *****************
+# / *****************
+
+REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema'
+}
+```
+
+* After that we have to add the links to the URLs
+
+```py
+# app/app/urls.py
+
+```
