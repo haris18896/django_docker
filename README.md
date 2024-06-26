@@ -402,3 +402,11 @@ class CommandTests(SimpleTestCase):
         patched_check.assert_called_with(databases=['default'])
 
 ```
+
+
+### Django ORM
+1. Object Relational Mapper (ORM)
+2. Abstraction layer for data
+   * Django handles database structure and changes
+   * Focus on python code
+   * Use any database (within reason)
