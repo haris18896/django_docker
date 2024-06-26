@@ -1,4 +1,4 @@
-# Django Docker
+# `Django Docker`
 
 ### Authenticate with Docker HUB
 1. Go to [hub.docker.com](https://hub.docker.com) and login
@@ -120,7 +120,7 @@ exclude =
    * `docker-compose up`
 3. After that check the browser and run `127.0.0.1:8000` the app should run at this point
 
-# Configuring GitHub Actions
+# `Configuring GitHub Actions`
 * GitHub's actions are like automation tools Travis-CI, GitLab CI/CD, Jenkins
 * Run jobs when code changes
 * It handles Deployment, Code Linting, and Unit Tests
@@ -157,7 +157,7 @@ jobs:
 ```
 
 
-# Django Test
+# `Django Test`
 1. Based on the `unittest` library
 2. Django adds features to the `unittest` library
    * Test client - which is dummy web browser that you can use to make a request to your project
@@ -207,7 +207,7 @@ jobs:
    * `patch` - Overrides code for testing
 
 
-# Configuring DataBase
+# `Configuring DataBase`
 1. Our docker-compose will have 2 services
    * Database Service
    * App Service
@@ -410,3 +410,466 @@ class CommandTests(SimpleTestCase):
    * Django handles database structure and changes
    * Focus on python code
    * Use any database (within reason)
+
+# `Django User Model`
+1. Foundation of the django auth system
+2. Default user model
+   * Username instead of email
+   * Not easy to customise
+3. Create a custom model for new projects
+   * Allows for using email instead of username
+
+### How to Customise user model
+1. Create model
+   * Base form `AbstractBaseUser` and `PermissionMixin`
+2. Create custom manager
+   * Used for CLI integration
+3. Set `AUTH_USER_MODEL` in settings.py
+4. Make migrations
+
+* Below we are adding a test case for user model.
+* At this point the test will fail because we haven't added any Custom User model, so the default user model will expect `username`
+
+```py
+# test_models.py
+"""
+Tests for models.
+"""
+from django.test import TestCase
+from django.contrib.auth import get_user_model
+
+
+class ModelTests(TestCase):
+    """Test Models"""
+    def test_create_user_with_email_successful(self):
+        """Text creating a user with an email is successful"""
+        email = 'test@example.com'
+        password = 'testpass123'
+        user = get_user_model().objects.create_user(email=email, password=password)
+
+
+        self.assertEqual(user.email, email)
+        self.assertTrue((user.check_password(password)))
+```
+
+* Then we are going to add a Custom User model
+
+```py
+# core/models.py
+"""Database Models"""
+from django.db import models
+from django.contrib.auth.models import (
+    AbstractBaseUser,
+    BaseUserManager,
+    PermissionsMixin
+)
+
+
+class User(AbstractBaseUser, PermissionsMixin):
+    """User in the system."""
+    email = models.EmailField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+
+    USERNAME_FIELD = 'email'
+```
+
+* Once we create the `ModelTests` and CustomUserModel `User` we are going to create `UserManger` model in `core/models.py`
+```py
+ # core/models.py
+"""Database Models"""
+from django.db import models
+from django.contrib.auth.models import (
+    AbstractBaseUser,
+    BaseUserManager,
+    PermissionsMixin
+)
+
+
+class UserManager(BaseUserManager):
+    """Manager for users"""
+    def create_user(self, email, password=None, **extra_field):
+        """Create, save and return a new user"""
+        user  = self.model(email=email, **extra_field)
+        user.set_password(password)
+        user.save(using=self._db)
+
+        return user
+
+
+class User(AbstractBaseUser, PermissionsMixin):
+    """User in the system."""
+    email = models.EmailField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+
+    objects = UserManager()
+
+    USERNAME_FIELD = 'email'
+```
+
+
+* Setting the `AUTH_USER_MODEL` configuration in `settings.py`
+* And then make migrations `docker-compose run --rm app sh -c "python manage.py makemigrations"`
+
+```py
+# app/settings.py
+
+# /........../
+# /........../
+# /........../
+AUTH_USER_MODEL = 'core.User'
+```
+
+### Removing Volume
+
+* Run `docker-compose run --rm app sh -c "python manage.py wait_for_db && python manage.py migrate"`
+* if you see `django.db.migrations.exceptions.InconsistentMigrationHistory:`
+  * then clear the data from our database
+  * Run `docker volume ls`
+  * Run `docker-compose down`
+  * Remove the volume `docker volumne rm <volume-name>`
+  * Then re-run the migrations in first step
+  * and after that run the tests
+
+### Add Feature to Normalize User Email
+1. Adding Test for `email` entered and the expected email
+2. To Normalize User Email
+
+```py
+   # models
+from django.db import models
+from django.contrib.auth.models import (
+    AbstractBaseUser,
+    BaseUserManager,
+    PermissionsMixin
+)
+
+# update the UserManager
+class UserManager(BaseUserManager):
+    """Manager for users"""
+    def create_user(self, email, password=None, **extra_fields):
+        """Create, save and return a new user"""
+        user  = self.model(email=self.normalize_email(email), **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+
+        return user
+```
+
+```py
+"""
+Tests for models.
+"""
+from django.test import TestCase
+from django.contrib.auth import get_user_model
+class ModelTests(TestCase):
+    """Test Models"""
+    
+    # /****** test_create_user_with_email_successful(self):  *******/
+    
+    def test_new_user_email_normalized(self):
+        """Test email is normalized for new users"""
+        sample_emails = [
+            ['test1@EXAMPLE.com', 'test1@example.com'],
+            ['test2@Example.com', 'test2@example.com'],
+            ['test3@example.COM', 'test3@example.com'],
+        ]
+
+        for email, expected in sample_emails:
+            user = get_user_model().objects.create_user(email, 'sample123')
+            self.assertEqual(user.email, expected)
+```
+
+### Add Require email address
+```py
+from django.test import TestCase
+from django.contrib.auth import get_user_model
+class ModelTests(TestCase):
+    """Test Models"""
+    
+    # /****** test_create_user_with_email_successful(self):  *******/
+    # /****** test_new_user_email_normalized(self):  *******/
+    
+    def test_new_user_without_email_raises_error(self):
+        """Test that creating a user without an email raises a ValueError"""
+        with self.assertRaises(ValueError):
+            get_user_model().objects.create_user('', 'test123')
+```
+
+### Add Superuser Functionality
+1. As Always first we will add the Test
+2. And then we will write the function
+3. and then run tests
+
+```py
+# Test
+from django.test import TestCase
+from django.contrib.auth import get_user_model
+class ModelTests(TestCase):
+    """Test Models"""
+    
+    # /****** test_create_user_with_email_successful(self):  *******/
+    # /****** test_new_user_email_normalized(self):  *******/
+    # /****** test_new_user_without_email_raises_error(self): ******/
+    def test_create_superuser(self):
+        """Test creating a superuser"""
+        user = get_user_model().objects.create_superuser(
+            'test@example.com',
+            'test123'
+        )
+
+        self.assertTrue(user.is_superuser)
+        self.assertTrue(user.is_staff)
+```
+
+```py
+# UserModel
+"""Database Models"""
+from django.db import models
+from django.contrib.auth.models import (
+    AbstractBaseUser,
+    BaseUserManager,
+    PermissionsMixin
+)
+
+class UserManager(BaseUserManager):
+    # /****** def create_user(self, email, password=None, **extra_fields): ******/
+    
+    def create_superuser(self, email, password):
+        """Create, save and return a new superuser"""
+        user = self.create_user(email, password)
+        user.is_staff = True
+        user.is_superuser = True
+        user.save(using=self._db)
+
+        return user
+```
+
+* After that run the below command to create a new superuser
+  * `docker-compose run --rm app sh -c "python manage.py createsuperuser"`
+
+
+# `Setup Django Admin`
+
+### What is the Django Admin?
+1. A Graphical User Interface for models
+   * Create, Read, Update, Delete
+2. Very little coding required 
+3. How to Enable
+   * Enabled per model
+   * inside `admin.py`
+      * `admin.site.register(Recipe)`
+4. Customising
+   * Create a class based off `ModelAdmin` or `UserAdmin`
+   * Override/set class variables 
+   * We can also change list of Objects
+5. Changing List of Objects
+   * `Ordering`: Changes order items appear
+   * `list_display`: fields to appear in list
+6. Add/update page
+   * `fieldsets`: Control layout of page
+   * `readonly_fields`: fields that cannot be changed
+7. Add Page
+   * `add_fieldssets`
+
+* First we are going to create a test
+* And then we will write Django admin functions
+
+```py
+# core/tests/test_admin.py
+"""
+Tests for the Django admin modifications
+"""
+from django.test import TestCase
+from django.contrib.auth import get_user_model
+from django.urls import reverse
+from django.test import Client
+
+
+class AdminSiteTests(TestCase):
+    """Tests for Django Admin."""
+
+    def setUp(self):
+        """Create user and client"""
+        self.client = Client()
+        self.admin_user = get_user_model().objects.create_superuser(
+            email='admin@example.com',
+            password='incorrect'
+        )
+        self.client.force_login(self.admin_user)
+        self.user = get_user_model().objects.create_user(
+            email='user@example.com',
+            password='incorrect',
+            name='Test User'
+        )
+
+    def test_users_list(self):
+        """Test that users are listed on page."""
+        url = reverse('admin:core_user_changelist')
+        res = self.client.get(url)
+
+        self.assertContains(res, self.user.name)
+        self.assertContains(res, self.user.email)
+```
+
+```py
+# core/admin.py
+"""Django admin customization."""
+
+from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+
+from . import models
+
+class UserAdmin(BaseUserAdmin):
+    """Define the admin pages for users"""
+    ordering = ['id']
+    list_display = ['email', 'name']
+
+
+admin.site.register(models.User, UserAdmin)
+```
+
+* At this point we can see Users in our django admin
+* But we are unable to move to the next screen when clicking on the email of the user
+
+* For that we are going write test first
+* and then we will update the `admin.py`
+
+```py
+# core/tests/test_admin.py
+"""
+Tests for the Django admin modifications
+"""
+from django.test import TestCase
+from django.contrib.auth import get_user_model
+from django.urls import reverse
+from django.test import Client
+
+class AdminSiteTests(TestCase):
+    # / ***** def setUp(self): ***** /
+    # / *****  def test_users_list(self): ***** /
+    
+    def test_edit_user_page(self):
+        """Test the edit user page works"""
+        url = reverse('admin:core_user_change', args=[self.user.id])
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, 200)
+```
+
+```py
+"""Django admin customization."""
+
+from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.utils.translation import gettext_lazy as _
+
+from . import models
+
+
+class UserAdmin(BaseUserAdmin):
+    """Define the admin pages for users"""
+
+    ordering = ["id"]
+    list_display = ["email", "name"]
+    fieldsets = (
+        (None, {'fields': ('email', 'password')}),
+        (
+            _('Permissions'),
+            {
+                'fields': (
+                    'is_active',
+                    'is_staff',
+                    'is_superuser',
+                )
+            }
+        ),
+        (_('Important dates'), {'fields': ('last_login',)})
+    )
+    readonly_fields = ['last_login']
+
+
+admin.site.register(models.User, UserAdmin)
+```
+
+* Now customizing the admin page for changing user
+* First we are going to write test for it
+* And then we will update the Admin Model
+
+```py
+```py
+# core/tests/test_admin.py
+"""
+Tests for the Django admin modifications
+"""
+from django.test import TestCase
+from django.contrib.auth import get_user_model
+from django.urls import reverse
+from django.test import Client
+
+class AdminSiteTests(TestCase):
+    # / ***** def setUp(self): ***** /
+    # / ***** def test_users_list(self): ***** /
+    # / ***** def test_edit_user_page(self): ***** /
+
+    def test_create_user_page(self):
+        """Test the create user page works"""
+        url = reverse('admin:core_user_add')
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, 200)
+```
+
+```py
+# core/test/test_admin.py
+"""Django admin customization."""
+
+from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.utils.translation import gettext_lazy as _
+
+from . import models
+
+
+class UserAdmin(BaseUserAdmin):
+    """Define the admin pages for users"""
+
+    ordering = ["id"]
+    list_display = ["email", "name"]
+    fieldsets = (
+        (None, {'fields': ('email', 'password')}),
+        (
+            _('Permissions'),
+            {
+                'fields': (
+                    'is_active',
+                    'is_staff',
+                    'is_superuser',
+                )
+            }
+        ),
+        (_('Important dates'), {'fields': ('last_login',)})
+    )
+    readonly_fields = ['last_login']
+    add_fieldsets = (
+        (None, {
+            'classes': ('wide',),
+            'fields': (
+                'email',
+                'password1',
+                'password2',
+                'name',
+                'is_active',
+                'is_staff',
+                'is_superuser'
+            )
+        }),
+    )
+
+
+admin.site.register(models.User, UserAdmin)
+```
