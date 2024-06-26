@@ -283,3 +283,52 @@ DATABASES = {
 }
 ```
 
+### Problem with Docker compose
+1. Using `depends_on` ensures service starts
+   * But Doesn't ensure application is running
+2. This issue appears 
+   * when we are running `docker-compose` locally
+   * Running on deployed environment
+
+
+* with the above solution, when the docker runs the database service as it will run it first, once the database service stop starting it will start the django app service
+* meanwhile the database service will start Postgres and the app service will start app service
+* But at this point the database service has not completed starting the postgres service and it's not ready, on the other-hand the django app is ready and trying to connect to the database
+* at this point we will get an error. and this error appears on the first time, soo we will have to restart the service and it will work
+
+![dockerTimeLine.png](..%2F..%2F..%2F..%2F..%2FDesktop%2FdockerTimeLine.png)
+
+#### `Solution`
+1. Make Django `wait for db`
+   * Check for database availability
+   * Continue when database is ready
+2. Create a Custom Django management command
+
+* with the above solution, when the docker runs the database service as it will run it first, once the database service stop starting it will start the django app service
+* meanwhile the database service will start Postgres and the app service will start app service
+* Now at this point the Django-app service will wait for the database service to be ready, and it will check if it's ready
+* and once the database is ready it will connect with the database
+
+![newDockerTimeLine.png](..%2F..%2F..%2F..%2F..%2FDesktop%2FnewDockerTimeLine.png)
+
+### Fixing Database Race Condition
+1. Create a django app called `core`
+2. From the `core` app 
+   * we will delete `tests.py` file and will add `tests` directory
+   * we will delete `views.py` because our core app will not serve any views
+3. Add `core` app to the `settings.py` file
+
+```py
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    'core',
+]
+```
+
+### Adding Command to core to wait for DB
+1. 
