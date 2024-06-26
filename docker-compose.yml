@@ -30,5 +30,17 @@ services:
       - POSTGRES_USER=devuser
       - POSTGRES_PASSWORD=changeme
 
+  format:
+    build:
+      context: .
+      args:
+        - DEV=true
+    volumes:
+      - ./app:/app
+    command: >
+      sh -c "/py/bin/black /app"
+    depends_on:
+      - app
+
 volumes:
   dev-db-data:
