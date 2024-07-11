@@ -1410,3 +1410,6 @@ urlpatterns = [
 ]
 
 ```
+
+
+# `Receipe API`
