@@ -1107,13 +1107,306 @@ urlpatterns = [
 
 ### `Authentication`
 1. Basic
-    * Username and password
+    * Send Username and password with each request
     * `BasicAuthentication`
 2. Token based authentication
+   * Use a token in HTTP header
    * `TokenAuthentication`
    * `ObtainAuthToken`
 3. JSON Web Token (JWT)
+   * Use an access and refresh token
    * `SimpleJWT`
    * `JWTAuthentication`
+4. Session Authentication
+   * Use cookies
+   * `SessionAuthentication`
+
+* We are going to use `TokenAuthentication` for our API
+* also make sure to add `rest_framework.authtoken` to the `INSTALLED_APPS` in the `settings.py`
+
+1. First we are going to write tests for our `APIs`
+2. After that we are going to write the `seriliazers` for the `create user, Token, and me endpoint` in the `user` app 
+3. Then that we are going to write the `views` for the `create user, Token, and me endpoint` in the `user` app 
+4. Then we are going to add the `urls` for the `create user, Token, and me endpoint` in the `user` app
+
+```py
+# Tests
+"""
+Tests for the user API.
+"""
+from django.test import TestCase
+from django.contrib.auth import get_user_model
+from django.urls import reverse
+
+from rest_framework.test import APIClient
+from rest_framework import status
 
 
+CREATE_USER_URL = reverse('user:create')
+TOKEN_URL = reverse('user:token')
+ME_URL = reverse('user:me')
+
+
+def create_user(**params):
+    """Create and return a new user."""
+    return get_user_model().objects.create_user(**params)
+
+
+class PublicUserApiTests(TestCase):
+    """Test the public features of the user API."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_create_user_success(self):
+        """Test creating a user is successful."""
+        payload = {
+            'email': 'test@example.com',
+            'password': 'testpass123',
+            'name': 'Test Name',
+        }
+        res = self.client.post(CREATE_USER_URL, payload)
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        user = get_user_model().objects.get(email=payload['email'])
+        self.assertTrue(user.check_password(payload['password']))
+        self.assertNotIn('password', res.data)
+
+    def test_user_with_email_exists_error(self):
+        """Test error returned if user with email exists."""
+        payload = {
+            'email': 'test@example.com',
+            'password': 'testpass123',
+            'name': 'Test Name',
+        }
+        create_user(**payload)
+        res = self.client.post(CREATE_USER_URL, payload)
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_password_too_short_error(self):
+        """Test an error is returned if password less than 5 chars."""
+        payload = {
+            'email': 'test@example.com',
+            'password': 'pw',
+            'name': 'Test name',
+        }
+        res = self.client.post(CREATE_USER_URL, payload)
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        user_exists = get_user_model().objects.filter(
+            email=payload['email']
+        ).exists()
+        self.assertFalse(user_exists)
+
+    def test_create_token_for_user(self):
+        """Test generates token for valid credentials."""
+        user_details = {
+            'name': 'Test Name',
+            'email': 'test@example.com',
+            'password': 'test-user-password123',
+        }
+        create_user(**user_details)
+
+        payload = {
+            'email': user_details['email'],
+            'password': user_details['password'],
+        }
+        res = self.client.post(TOKEN_URL, payload)
+
+        self.assertIn('token', res.data)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_create_token_bad_credentials(self):
+        """Test returns error if credentials invalid."""
+        create_user(email='test@example.com', password='goodpass')
+
+        payload = {'email': 'test@example.com', 'password': 'badpass'}
+        res = self.client.post(TOKEN_URL, payload)
+
+        self.assertNotIn('token', res.data)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_token_blank_password(self):
+        """Test posting a blank password returns an error."""
+        payload = {'email': 'test@example.com', 'password': ''}
+        res = self.client.post(TOKEN_URL, payload)
+
+        self.assertNotIn('token', res.data)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_retrieve_user_unauthorized(self):
+        """Test authentication is required for users."""
+        res = self.client.get(ME_URL)
+
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class PrivateUserApiTests(TestCase):
+    """Test API requests that require authentication."""
+
+    def setUp(self):
+        self.user = create_user(
+            email='test@example.com',
+            password='testpass123',
+            name='Test Name',
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_retrieve_profile_success(self):
+        """Test retrieving profile for logged in user."""
+        res = self.client.get(ME_URL)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data, {
+            'name': self.user.name,
+            'email': self.user.email,
+        })
+
+    def test_post_me_not_allowed(self):
+        """Test POST is not allowed for the me endpoint."""
+        res = self.client.post(ME_URL, {})
+
+        self.assertEqual(res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_update_user_profile(self):
+        """Test updating the user profile for the authenticated user."""
+        payload = {'name': 'Updated name', 'password': 'newpassword123'}
+
+        res = self.client.patch(ME_URL, payload)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.name, payload['name'])
+        self.assertTrue(self.user.check_password(payload['password']))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+```
+
+
+```py
+# Serializers
+"""
+Serializers for the user API View.
+"""
+
+from django.contrib.auth import (
+    get_user_model,
+    authenticate,
+)
+from django.utils.translation import gettext as _
+
+from rest_framework import serializers
+
+
+class UserSerializer(serializers.ModelSerializer):
+    """Serializer for the user object."""
+
+    class Meta:
+        model = get_user_model()
+        fields = ["email", "password", "name"]
+        extra_kwargs = {"password": {"write_only": True, "min_length": 5}}
+
+    def create(self, validated_data):
+        """Create and return a user with encrypted password."""
+        return get_user_model().objects.create_user(**validated_data)
+
+    def update(self, instance, validated_data):
+        """Update and return user."""
+        password = validated_data.pop("password", None)
+        user = super().update(instance, validated_data)
+
+        if password:
+            user.set_password(password)
+            user.save()
+
+        return user
+
+
+class AuthTokenSerializer(serializers.Serializer):
+    """Serializer for the user auth token."""
+
+    email = serializers.EmailField()
+    password = serializers.CharField(
+        style={"input_type": "password"},
+        trim_whitespace=False,
+    )
+
+    def validate(self, attrs):
+        """Validate and authenticate the user."""
+        email = attrs.get("email")
+        password = attrs.get("password")
+        user = authenticate(
+            request=self.context.get("request"),
+            username=email,
+            password=password,
+        )
+        if not user:
+            msg = _("Unable to authenticate with provided credentials.")
+            raise serializers.ValidationError(msg, code="authorization")
+
+        attrs["user"] = user
+        return attrs
+
+```
+
+
+```py
+# Views
+"""
+Views for the user API.
+"""
+
+from rest_framework import generics, authentication, permissions
+from rest_framework.authtoken.views import ObtainAuthToken
+from rest_framework.settings import api_settings
+
+from user.serializers import (
+    UserSerializer,
+    AuthTokenSerializer,
+)
+
+
+class CreateUserView(generics.CreateAPIView):
+    """Create a new user in the system."""
+
+    serializer_class = UserSerializer
+
+
+class CreateTokenView(ObtainAuthToken):
+    """Create a new auth token for user."""
+
+    serializer_class = AuthTokenSerializer
+    renderer_classes = api_settings.DEFAULT_RENDERER_CLASSES
+
+
+class ManageUserView(generics.RetrieveUpdateAPIView):
+    """Manage the authenticated user."""
+
+    serializer_class = UserSerializer
+    authentication_classes = [authentication.TokenAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        """Retrieve and return the authenticated user."""
+        return self.request.user
+
+```
+
+```py
+# Urls
+"""
+URL mappings for the user API.
+"""
+
+from django.urls import path
+from . import views
+
+app_name = 'user'
+
+urlpatterns = [
+    path('create/', views.CreateUserView.as_view(), name='create'),
+    path('token/', views.CreateTokenView.as_view(), name='token'),
+    path('me/', views.ManageUserView.as_view(), name='me'),
+]
+
+```
