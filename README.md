@@ -1413,3 +1413,37 @@ urlpatterns = [
 
 
 # `Receipe API`
+1. Feature of this api will be
+   * Create Recipe : `/recipes/`
+   * List Recipes : `/recipes/`
+   * View Recipe Detail : `/recipes/{id}/`
+   * Update Recipe : `/recipes/{id}/`
+   * Delete Recipe : `/recipes/{id}/`
+
+### `APIView vs Viewsets`
+1. What is a `View`?
+   * Handles a request made to a URL
+   * Django uses functions
+   * DRF uses classes
+     * Reusable logic
+     * Override behavior
+   * DRF also supports decorators
+   * `APIView` and `ViewSets`  = DRF base classes
+
+2. `APIView`
+   * Focuses around HTTP methods
+   * Class methods for HTTP methods
+     * GET, POST, PUT, PATCH, DELETE
+   * Provide flexibility over URLs and logic
+   * Useful for non-CRUD APIs
+     * Avoid for simple Create, Read, Update, Delete APIs
+     * Bespoke logic (e.g auth, jobs, external apis)
+
+3. `ViewSets`
+   * Focuses around actions
+     * Retrieve, list, update, partial update, destroy
+   * Map to Django model
+   * Use Routers to generate URLs
+   * Great for CRUD operations on models
+
+
