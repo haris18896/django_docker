@@ -926,3 +926,194 @@ urlpatterns = [
 ]
 
 ```
+
+
+# `Build User API`
+1. In this section we are going to create a user API
+   * User Registration
+   * Create auth token
+   * Viewing/Updating profile
+2. Endpoints
+   * `user/create/` this will be a `post` - request, Registering a new user
+   * `user/token` this will be a `post` - request, Create a new token
+   * `user/me/` this will be a `put/patch` request, Update profile
+   * `user/me/` this will be a `get` request, View profile
+3. We are going to create a new django-app for our user API 
+   * Run `docker-compose run --rm app sh -c "python manage.py startapp user"`
+4. Do some cleaning on the User project.
+   * Remove `migrations` because we are going to have all the migrations in the `core` app
+   * Remove `admin.py`
+   * Remove `models.py`
+   * Remove `test.py` and Create a `tests` directory
+
+
+* Add the `User` app to the `settings.py`
+
+### `Writing Tests for User API`
+1. Create a `test_user_api.py` in the `user/tests` directory
+2. Create a `test_user_api.py` in the `user/tests` directory
+
+```py
+"""
+Tests for the user API
+"""
+
+from django.test import TestCase
+from django.urls import reverse
+from django.contrib.auth import get_user_model
+
+from rest_framework.test import APIClient
+from rest_framework import status
+
+CREATE_USER_URL = reverse('user:create')
+
+def create_user(**params):
+    """Create and return a new user."""
+    return get_user_model().objects.create_user(**params)
+
+class PublicUserApiTests(TestCase):
+    """Test the users API (public)"""
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_create_valid_user_success(self):
+        """Test creating user with valid payload is successful"""
+        payload = {
+            'email': 'test@example.com',
+            'password': 'testPass123',
+            'name': 'Test Name'
+        }
+
+        res  = self.client.post(CREATE_USER_URL, payload)
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        user = get_user_model().objects.get(email=payload['email'])
+        self.assertTrue(user.check_password(payload['password']))
+        self.assertNotIn('password', res.data)
+
+    def test_user_with_email_exists_error(self):
+        """Test creating a user that already exists"""
+        payload = {
+            'email': 'test@example.com',
+            'password': 'testPass123',
+            'name': 'Test Name'
+        }
+
+        create_user(**payload)
+        res = self.client.post(CREATE_USER_URL, payload)
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_password_too_short_error(self):
+        """Test that the password must be more than 5 characters"""
+        payload = {
+            'email': 'test@example.com',
+            'password': 'pw',
+            'name': 'Test Name'
+        }
+
+        res = self.client.post(CREATE_USER_URL, payload)
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        user_exists = get_user_model().objects.filter(
+            email=payload['email']
+        ).exists()
+
+        self.assertFalse(user_exists)
+```
+
+* After writing the tests we are going to write the API because the test going to fail without that
+* For that we are going to create a new `Serializers` in the `user` app
+
+```py
+# user/serializers.py
+
+"""
+Serializers for the user API View
+"""
+
+from django.contrib.auth import get_user_model
+
+from rest_framework import serializers
+
+
+class UserSerializer(serializers.ModelSerializer):
+    """Serializer for the users object"""
+
+    class Meta:
+        model = get_user_model()
+        fields = ('email', 'password', 'name')
+        extra_kwargs = {'password': {'write_only': True, 'min_length': 5}}
+
+    def create(self, validated_data):
+        """Create a new user with encrypted password and return it"""
+        return get_user_model().objects.create_user(**validated_data)
+
+```
+
+* After writing the `seriliazers` we are going to write the `views` for the `user` app
+
+```py
+"""
+Views for the user API
+"""
+
+from rest_framework import generics
+from .serializers import UserSerializer
+
+
+class CreateUserView(generics.CreateAPIView):
+    """Create a new user in the system"""
+    serializer_class = UserSerializer
+
+```
+
+* After writing the `views` we are going to add the `urls` for the `user` app
+
+```py
+"""
+URL mappings for the user API.
+"""
+
+from django.urls import path
+from . import views
+
+app_name = 'user'
+
+urlpatterns = [
+    path('create/', views.CreateUserView.as_view(), name='create'),
+]
+```
+
+* Once we have the `urls` we are going to connect the `user/urls` to the `app/urls`
+
+```pyc
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path("admin/", admin.site.urls),
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    # # Optional UI:
+    path('api/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+
+    path('api/user/', include('user.urls')),
+]
+```
+
+### `Authentication`
+1. Basic
+    * Username and password
+    * `BasicAuthentication`
+2. Token based authentication
+   * `TokenAuthentication`
+   * `ObtainAuthToken`
+3. JSON Web Token (JWT)
+   * `SimpleJWT`
+   * `JWTAuthentication`
+
+
