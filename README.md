@@ -1878,3 +1878,129 @@ class IngredientViewSet(BaseRecipeAttrViewSet):
     queryset = Ingredient.objects.all()
 ```
 
+# `Filtering`
+1. Filter recipes by ingredients / tags
+   * Find certain types of recipes
+2. Filter tags / ingredients by assigned
+   * List filter options for recipes
+3. Define OpenAPI parameters
+   * Update documentation
+
+### `Example requests`
+1. Filter recipes by tag(s)
+   * GET `/api/recipe/recipes/?tags=1,2`
+2. Filter recipes by ingredient(s)
+   * GET `/api/recipe/recipes/?ingredients=1,2`
+3. Filter tags by assigned only
+   * GET `/api/recipe/tags/?assigned_only=1`
+4. Filter ingredients by assigned only
+    * GET `/api/recipe/ingredients/?assigned_only=1`
+
+### `OpenAPI Schema`
+1. Auto generated schema
+2. Some things need to be manually configured
+   * Custom query params (filtering)
+3. Use DRF Spectacular `extend_schema_view` decorator
+
+
+
+## `Filterning Steps`
+
+* First add Tests to `/app/recipe/tests/test_recipe_api.py`
+
+```py
+    def test_filter_by_tags(self):
+        """Test filtering by tags"""
+        r1 = create_recipe(user=self.user, title="Thai Curry")
+        r2 = create_recipe(user=self.user, title="Aloo Gobi")
+        tag1 = Tag.objects.create(user=self.user, name="Vegan")
+        tag2 = Tag.objects.create(user=self.user, name="Vegetarian")
+
+        r1.tags.add(tag1)
+        r2.tags.add(tag2)
+        r3 = create_recipe(user=self.user, title="Fish Curry")
+
+        params  = {'tags' : f'{tag1.id},{tag2.id}'}
+        res = self.client.get(RECIPES_URL, params)
+
+        s1 = RecipeSerializer(r1)
+        s2 = RecipeSerializer(r2)
+        s3 = RecipeSerializer(r3)
+
+        self.assertIn(s1.data, res.data)
+        self.assertIn(s2.data, res.data)
+        self.assertNotIn(s3.data, res.data)
+
+    def test_filter_by_ingredients(self):
+        """Test filter recipes by ingredients"""
+        r1 = create_recipe(user=self.user, title="Beans on Toast")
+        r2 = create_recipe(user=self.user, title="Chicken Curry")
+        in1 = Ingredient.objects.create(user=self.user, name="Beans")
+        in2 = Ingredient.objects.create(user=self.user, name="Chicken")
+
+        r1.ingredients.add(in1)
+        r2.ingredients.add(in2)
+        r3 = create_recipe(user=self.user, title="Fish Curry")
+
+        params = {'ingredients' : f'{in1.id},{in2.id}'}
+        res = self.client.get(RECIPES_URL, params)
+
+        s1 = RecipeSerializer(r1)
+        s2 = RecipeSerializer(r2)
+        s3 = RecipeSerializer(r3)
+
+        self.assertIn(s1.data, res.data)
+        self.assertIn(s2.data, res.data)
+        self.assertNotIn(s3.data, res.data)
+```
+
+* Implement the feature in the `app/recipe/Views.py`
+
+```py
+from drf_spectacular.utils import extend_schema_view, extend_schema, OpenApiParameter, OpenApiTypes
+
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                'tags',
+                OpenApiTypes.STR,
+                description='Comma separated list of tag IDs to filter'
+            ),
+            OpenApiParameter(
+                'ingredients',
+                OpenApiTypes.STR,
+                description='Comma separated list of ingredient IDs to filter'
+            )
+        ]
+    )
+)
+class RecipeViewSet(viewsets.ModelViewSet):
+    """View for manage recipe APIs"""
+
+    serializer_class = serializers.RecipeDetailSerializer
+    queryset = Recipe.objects.all()
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+
+    def _params_to_ints(self, qs):
+        """Convert a list of string IDs to a list of integers"""
+        return [int(str_id) for str_id in qs.split(",")]
+
+    def get_queryset(self):
+        """Retrieve recipes for authenticated user."""
+        # return self.queryset.filter(user=self.request.user).order_by("-id")
+        tags = self.request.query_params.get("tags")
+        ingredients = self.request.query_params.get("ingredients")
+        queryset = self.queryset
+
+        if tags:
+            tag_ids = self._params_to_ints(tags)
+            queryset = queryset.filter(tags__id__in=tag_ids)
+        if ingredients:
+            ingredient_ids = self._params_to_ints(ingredients)
+            queryset = queryset.filter(ingredients__id__in=ingredient_ids)
+
+        return queryset.filter(user=self.request.user).order_by('-id').distinct()
+```
