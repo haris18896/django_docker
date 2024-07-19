@@ -1447,3 +1447,434 @@ urlpatterns = [
    * Great for CRUD operations on models
 
 
+# `Image API`
+1. Handling static/media files
+2. Adding image dependencies
+3. Update recipe modal with image field
+4. Add image upload endpoint
+5. We will require `Pillow` python Imaging library and for that we have to install `zlib, zlib-dev, jpeg-dev` libraries to be installed
+
+### `Endpoints`
+1. `/api/recipe/<id>/upload-image/`
+   * `POST` request
+   * Upload an image to a recipe
+   * Return a URL to the image
+
+### `Uploading Image`
+* First we have to add `jpeg-dev` to the `dockerfile` 
+```docker
+RUN python -m venv /py && \
+    /py/bin/pip install --upgrade pip && \
+    apk add --update --no-cache postgresql-client jpeg-dev && \
+    apk add --update --no-cache --virtual .tmp-build-deps \
+        build-base postgresql-dev musl-dev zlib zlib-dev && \
+```
+* add `pillow` to the requirements.txt => `pillow>=10.4.0`
+* build the `docker`
+
+### `Configs`
+* Add the following to your `setttings.py`
+  * Adding `STATIC_URL` - Base static URL (e.g `/static/static/`)
+  * Adding `MEDIA_URL` - Base media URL (e.g `/static/media`)
+  * Adding `MEDIA_ROOT` - Path to media on filesystem (e.g `/vol/web/media`)
+  * Adding `STATIC_ROOT` - Path to static files on filesystem (e.g `/vol/web/static`)
+* Docker Volumes
+  * It stores persistent data
+  * Volume we will set up:
+    * `vol/web` - store `static` and `media` subdirectories
+
+### `Collect Static`
+* Django provides command to gather static files
+  * `python manage.py collectstatic`
+* Puts all static files into `STATIC_ROOT`
+
+
+* Create `/vol/web/media /vol/web/static` directories in dockerfile
+* Change the owner to the django-user
+* change the mod
+* and then rebuild the image `docker-compose build`
+
+```dockerfile
+FROM python:3.12.4-alpine3.20
+LABEL maintainer='github.com/haris18896'
+
+ENV PYTHONBUFFERED 1
+
+COPY ./requirements.txt /tmp/requirements.txt
+COPY ./requirements.dev.txt /tmp/requirements.dev.txt
+
+COPY ./app /app
+
+WORKDIR /app
+
+EXPOSE 8000
+
+ARG DEV=false
+
+RUN python -m venv /py && \
+    /py/bin/pip install --upgrade pip && \
+    apk add --update --no-cache postgresql-client jpeg-dev && \
+    apk add --update --no-cache --virtual .tmp-build-deps \
+        build-base postgresql-dev musl-dev zlib zlib-dev && \
+    /py/bin/pip install -r /tmp/requirements.txt && \
+    if [ "$DEV" = "true" ]; then \
+      /py/bin/pip install -r /tmp/requirements.dev.txt ; \
+    fi && \
+    rm -rf /tmp && \
+    apk del .tmp-build-deps && \
+    adduser --disabled-password --no-create-home django-user && \
+    mkdir -p /vol/web/media && \
+    mkdir -p /vol/web/static && \
+    chown -R django-user:django-user /vol && \
+    chmod -R 755 /vol
+
+ENV PATH="/py/bin:$PATH"
+
+USER django-user
+```
+
+* While its building we have to add volume to the docker-compose `dev-static-data:` volumes and we also have to mention it in the app volume `- dev-static-data:/vol/web`
+
+```yml
+version: "3.8"
+
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        - DEV=true
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app
+      - dev-static-data:/vol/web
+    command: >
+      sh -c "python manage.py wait_for_db &&
+              python manage.py migrate &&
+              python manage.py runserver 0.0.0.0:8000"
+    environment:
+      - DB_HOST=db
+      - DB_NAME=devdb
+      - DB_USER=devuser
+      - DB_PASS=changeme
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16.3-alpine3.20
+    volumes:
+      - dev-db-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=devdb
+      - POSTGRES_USER=devuser
+      - POSTGRES_PASSWORD=changeme
+
+  format:
+    build:
+      context: .
+      args:
+        - DEV=true
+    volumes:
+      - ./app:/app
+    command: >
+      sh -c "/py/bin/black /app"
+    depends_on:
+      - app
+
+volumes:
+  dev-db-data:
+  dev-static-data:
+```
+
+* Update `app/settings.py`
+```py
+# STATIC_URL = "static/"
+STATIC_URL = "/static/static/"
+MEDIA_URL = "/static/media/"
+
+MEDIA_ROOT = '/vol/web/media'
+STATIC_ROOT = '/vol/web/static' 
+
+# at the end
+SPECTACULAR_SETTINGS = {
+    'COMPONENT_SPLIT_REQUEST': True,
+}
+
+```
+
+* Update `app/urls.py`
+```py
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
+from django.contrib import admin
+from django.urls import path, include
+
+from django.conf.urls.static import static
+from django.conf import settings
+
+urlpatterns = [
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    # # Optional UI:
+    path(
+        "api/docs",
+        SpectacularSwaggerView.as_view(url_name="schema"),
+        name="swagger-ui",
+    ),
+    path(
+        "api/schema/redoc/",
+        SpectacularRedocView.as_view(url_name="schema"),
+        name="redoc",
+    ),
+    # Paths
+    path("admin/", admin.site.urls),
+    path("api/user/", include("user.urls")),
+    path("api/recipe/", include("recipe.urls")),
+]
+
+if setting.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+```
+
+
+# `Adding Image Functionality`
+* First we are going to write a test for the image
+
+```py
+# /core/tests/test_models.py
+from unittest.mock import patch
+from decimal import Decimal
+
+from django.test import TestCase
+from django.contrib.auth import get_user_model
+
+from core import models
+
+
+def create_user(email="user@example.com", password="testPass123"):
+    """Create a sample user"""
+    return get_user_model().objects.create_user(email, password)
+
+
+class ModelTests(TestCase):
+    """Test Models"""
+        
+    # **********......*********
+    # **********......*********
+    # **********......*********
+    # **********......*********
+    # **********......*********
+    # **********......*********
+    # **********......*********
+    
+    @patch('core.models.uuid.uuid4')
+    def test_recipe_file_name_uuid(self, mock_uuid):
+        """Test generating image path"""
+        uuid = 'test-uuid'
+        mock_uuid.return_value = uuid
+        file_path = models.recipe_image_file_path(None, 'myimage.jpg')
+
+        self.assertEqual(file_path, f'uploads/recipe/{uuid}.jpg')
+```
+
+* Next, we implement the feature in models
+
+```py
+# /core/models.py
+import uuid
+import os
+
+# **********......*********
+def recipe_image_file_path(instance, filename):
+    """Generate file path for new recipe image"""
+    ext = os.path.splitext(filename)[1]
+    filename = f"{uuid.uuid4()}{ext}"
+
+    return os.path.join('uploads', 'recipe', filename)
+```
+
+* Add the field to the Recipe class `image = models.ImageField(null=True, upload_to=recipe_image_file_path)`
+* Run the `makemigrations` and then run `test`
+* Next, Implementing the API functionality for uploading Image
+
+* * Test Case
+```py
+# /recipe/tests/test_recipe_api.py
+
+"""Tests for Recipe APIs"""
+
+from decimal import Decimal
+import tempfile
+import os
+
+from PIL import Image
+
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from django.urls import reverse
+
+from rest_framework import status
+from rest_framework.test import APIClient
+
+from core.models import Recipe, Tag, Ingredient
+
+from recipe.serializers import RecipeSerializer, RecipeDetailSerializer
+
+
+RECIPES_URL = reverse("recipe:recipe-list")
+
+
+# **********......*********
+# **********......*********
+
+def image_upload_url(recipe_id):
+    """Create and return an image upload URL."""
+    return reverse("recipe:recipe-upload-image", args=[recipe_id])
+
+# **********......*********
+# **********......*********
+
+class ImageUploadTests(TestCase):
+    """Test for the image upload API"""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = get_user_model().objects.create_user(
+            'user@example.com',
+            'password123'
+        )
+        self.client.force_authenticate(self.user)
+        self.recipe = create_recipe(user=self.user)
+
+    def tearDown(self):
+        self.recipe.image.delete()
+
+    def test_upload_image(self):
+        """Test uploading an image to recipe"""
+        url = image_upload_url(self.recipe.id)
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as image_file:
+            img  = Image.new('RGB', (10, 10))
+            img.save(image_file, format='JPEG')
+            image_file.seek(0)
+            payload = {'image': image_file}
+            res = self.client.post(url, payload, format='multipart')
+
+        self.recipe.refresh_from_db()
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn('image', res.data)
+        self.assertTrue(os.path.exists(self.recipe.image.path))
+        
+    def test_upload_image_bad_request(self):
+        """Test uploading an invalid image"""
+        url = image_upload_url(self.recipe.id)
+        payload = {'image': 'notAnImage'}
+        res = self.client.post(url, payload, format='multipart')
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+    
+```
+
+* Next, we Implement the functionality for uploading images via recipe endpoint
+* Go to the `/app/recipe/serializers` and add `RecipeImageSerializer` class for image
+
+
+```py
+class RecipeImageSerializer(serializers.ModelSerializer):
+    """Serializer for uploading image to recipes"""
+
+    class Meta:
+        model = Recipe
+        fields = ["id", "image"]
+        read_only_fields = ["id"]
+        extra_kwargs = {"image": {"required": True}}
+```
+
+* Next, we are going to add the view for the image upload
+
+```py
+"""Views for Recipe API"""
+
+from rest_framework import viewsets, mixins, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.authentication import TokenAuthentication
+from rest_framework.permissions import IsAuthenticated
+
+from core.models import Recipe, Tag, Ingredient
+
+from . import serializers
+
+
+class RecipeViewSet(viewsets.ModelViewSet):
+    """View for manage recipe APIs"""
+
+    serializer_class = serializers.RecipeDetailSerializer
+    queryset = Recipe.objects.all()
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """Retrieve recipes for authenticated user."""
+        return self.queryset.filter(user=self.request.user).order_by("-id")
+
+    def get_serializer_class(self):
+        """Return the serializer class for request"""
+
+        if self.action == "list":
+            return serializers.RecipeSerializer
+        elif self.action == "upload_image":
+            return serializers.RecipeImageSerializer
+
+        return self.serializer_class
+
+    def perform_create(self, serializer):
+        """Create a new recipe"""
+        serializer.save(user=self.request.user)
+
+    @action(methods=['POST'], detail=True, url_path='upload-image')
+    def upload_image(self, request, pk=None):
+        """Upload an image to a recipe"""
+        recipe = self.get_object()
+        serializer = self.get_serializer(recipe, data=request.data)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class BaseRecipeAttrViewSet(
+    mixins.DestroyModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Base view set for recipe attributes"""
+
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """Retrieve ingredients and Tags for authenticated user"""
+        return self.queryset.filter(user=self.request.user).order_by("-name")
+
+
+class TagViewSet(BaseRecipeAttrViewSet):
+    """Manage tags in the database"""
+
+    serializer_class = serializers.TagSerializer
+    queryset = Tag.objects.all()
+
+
+class IngredientViewSet(BaseRecipeAttrViewSet):
+    """Manage ingredients in the database"""
+
+    serializer_class = serializers.IngredientSerializer
+    queryset = Ingredient.objects.all()
+```
+
