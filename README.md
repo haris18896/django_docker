@@ -1570,6 +1570,7 @@ services:
       - POSTGRES_DB=devdb
       - POSTGRES_USER=devuser
       - POSTGRES_PASSWORD=changeme
+      - DEBUG=1
 
   format:
     build:
@@ -2004,3 +2005,240 @@ class RecipeViewSet(viewsets.ModelViewSet):
 
         return queryset.filter(user=self.request.user).order_by('-id').distinct()
 ```
+
+
+# `Deployment to AWS server`
+There are various ways to deploy Django
+1. Install application directly on server using `NGINX` or `Apache` or using `Docker`
+2. Serverless Cloud
+   * Google Cloud Run / Google App  Engine
+   * AWS Elastic Beanstalk / EC2
+
+* We are going to use Single VPS on AWS (EC2)
+* Then we are going to use Docker / Docker-Compose
+
+## `Steps`
+1. Configuring project for deployment
+2. Create server on AWS
+3. Deploy App
+
+### `Steps Deploying Django app`
+1. Set up a proxy
+2. handle static / media files
+3. Configuration
+
+
+#### `Note`
+* There are different components involve in deploying django application
+1. The first component is `WSGI (Web Server gateway interface)` which is a protocol that allows web servers to communicate with web applications
+2. `Persistent Data`
+3. `Reverse Proxy`
+
+#### Why use a reverse proxy?
+1. Best practice when deploying django application
+2. WSGI server great at executing python but not serving static files
+3. Web Servers like `NGINX` and `Apache` are great at serving static files
+
+#### `Applications we'll use`
+1. `NGINX` : Open source, fast, secure, prodcution grade web server
+2. `uWSGI` : Open source, fast, lightweight, simple to use
+3. `Docker Compose` : pulls it all together
+
+
+## `1. Docker Compose setup`
+
+![docker-compose-setup-deployment.png](..%2F..%2F..%2F..%2F..%2FDesktop%2Fdocker-compose-setup-deployment.png)
+
+#  `uWSGI Server`
+1. We have to add the below things to the `Dockerfile`
+   * `COPY ./scripts /scripts`
+   * `build-base postgresql-dev musl-dev zlib zlib-dev linux-headers&& \`
+   * Change the path `ENV PATH="/scripts:/py/bin:$PATH"`
+   * `chmod -R +x /scripts`
+   * `CMD ["run.sh"]'
+2. In the root of the directory create `scripts` directory and in that add `run.sh` and also make sure to add `uwsgi` to the requirements.txt file
+```sh
+#!/bin/sh
+
+set -e
+
+python manage.py wait_for_db
+python manage.py collectstatic --noinput
+python manage.py migrate
+
+uwsgi --socket :9000 --workers 4 --master --enable-threads --module app.wsgi 
+```
+* Build the image `Docker-compose build`
+
+# `NGINX`
+1. Create a `proxy` directory in the root directory and in that directory create a `default.conf.tpl` file
+2. Add the `uwsgi_params` file to the `proxy` directory
+3. Create a `run.sh` file in the `proxy` directory
+
+
+```tpl
+server {
+    listen ${LISTEN_PORT};
+
+    location /static {
+        alias /vol/static;
+    }
+
+    location / {
+        uwsgi_pass           ${APP_HOST}:${APP_PORT};
+        include              /etc/nginx/uwsgi_params;
+        client_max_body_size 10M;
+    }
+}
+ 
+``` 
+
+```
+uwsgi_param QUERY_STRING $query_string;
+uwsgi_param REQUEST_METHOD $request_method;
+uwsgi_param CONTENT_TYPE $content_type;
+uwsgi_param CONTENT_LENGTH $content_length;
+uwsgi_param REQUEST_URI $request_uri;
+uwsgi_param PATH_INFO $document_uri;
+uwsgi_param DOCUMENT_ROOT $document_root;
+uwsgi_param SERVER_PROTOCOL $server_protocol;
+uwsgi_param REMOTE_ADDR $remote_addr;
+uwsgi_param REMOTE_PORT $remote_port;
+uwsgi_param SERVER_ADDR $server_addr;
+uwsgi_param SERVER_PORT $server_port;
+uwsgi_param SERVER_NAME $server_name;
+```
+
+```sh
+#!/bin/sh
+
+set -e
+
+envsubst < /etc/nginx/default.conf.tpl > /etc/nginx/conf.d/default.conf
+nginx -g 'daemon off;'
+
+```
+
+## `Create a docker file for NGINX`
+1. Create `Dockerfile` in the proxy directory
+
+```dockerfile
+FROM nginxinc/nginx-unprivileged:1-alpine
+LABEL maintainer="londonappdeveloper.com"
+
+COPY ./default.conf.tpl /etc/nginx/default.conf.tpl
+COPY ./uwsgi_params /etc/nginx/uwsgi_params
+COPY ./run.sh /run.sh
+
+ENV LISTEN_PORT=8000
+ENV APP_HOST=app
+ENV APP_PORT=9000
+
+USER root
+
+RUN mkdir -p /vol/static && \
+    chmod 755 /vol/static && \
+    touch /etc/nginx/conf.d/default.conf && \
+    chown nginx:nginx /etc/nginx/conf.d/default.conf && \
+    chmod +x /run.sh
+
+VOLUME /vol/static
+
+USER nginx
+
+CMD ["/run.sh"]
+```
+
+* Change to the proxy directory `cd proxy`
+* And then run `docker build .`
+
+## `Handling Configuration`
+* Create `docker-compose-deploy.yml` in the root directory
+
+```yml
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+    restart: always
+    volumes:
+      - static-data:/vol/web
+    environment:
+      - DB_HOST=db
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+      - SECRET_KEY=${SECRET_KEY}
+      - ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS}
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16.3-alpine3.20
+    restart: always
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASS}
+
+  proxy:
+    build:
+      context: ./proxy
+    restart: always
+    depends_on:
+      - app
+    ports:
+      - 80:8000
+    volumes:
+      - static-data:/vol/static
+
+volumes:
+  postgres-data:
+  static-data:
+
+```
+
+* Create `.env.sample` in the root directory
+```env
+DB_NAME=dbname
+DB_USER=rootuser
+DB_PASS=changeme
+DJANGO_SECRET_KEY=key
+DJANGO_ALLOWED_HOSTS=127.0.0.1 
+```
+
+* Next we are going to update `settings.py` file in the app directory to use the enviroment variables that are hardcoded their
+```py
+# SECURITY WARNING: keep the secret key used in production secret!
+# SECRET_KEY = "django-insecure-^1b_8#kd7g-t9ai28&68)4o%1ts@(p$+fj4#_))w)hxmh)8=8b"
+SECRET_KEY = os.environ.get("SECRET_KEY", 'changeme')
+
+# SECURITY WARNING: don't run with debug turned on in production!
+# DEBUG = True
+DEBUG = bool(int(os.environ.get("DEBUG", 0)))
+
+ALLOWED_HOSTS = []
+ALLOWED_HOSTS.extend(
+    filter(
+        None,
+        os.environ.get('ALLOWED_HOSTS', '').split(','),
+    )
+) 
+```
+
+* Create a `.env` file in the root directory
+* Change the directory `cd ../`
+  * Run `docker-compose -f docker-compose-deploy.yml down`
+  * Run `docker-compose -f docker-compose-deploy.yml up`
+
+# `Creating a Virtual Server in the AWS`
+1. Create AWS account and user
+2. Login to console
+3. Creating a new virtual server
+4. Connect via SSH
+5. Use same SSH key as for Github
+

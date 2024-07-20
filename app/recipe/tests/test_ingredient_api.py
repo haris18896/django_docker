@@ -95,17 +95,17 @@ class PrivateIngredientsApiTests(TestCase):
 
     def test_filter_ingredient_assigned_to_recipes(self):
         """Test listing ingredients by those assigned to recipes"""
-        in1 = Ingredient.objects.create(user=self.user, name='Apples')
-        in2 = Ingredient.objects.create(user=self.user, name='Turkey')
+        in1 = Ingredient.objects.create(user=self.user, name="Apples")
+        in2 = Ingredient.objects.create(user=self.user, name="Turkey")
         recipe = Recipe.objects.create(
-            title='Apple Crumble',
+            title="Apple Crumble",
             time_minutes=5,
-            price=Decimal('4.50'),
+            price=Decimal("4.50"),
             user=self.user,
         )
         recipe.ingredients.add(in1)
 
-        res = self.client.get(INGREDIENTS_URL, {'assigned_only': 1})
+        res = self.client.get(INGREDIENTS_URL, {"assigned_only": 1})
 
         s1 = IngredientSerializer(in1)
         s2 = IngredientSerializer(in2)
@@ -114,23 +114,23 @@ class PrivateIngredientsApiTests(TestCase):
 
     def test_filtered_ingredients_unique(self):
         """Test filtered ingredients return a unique list"""
-        ing = Ingredient.objects.create(user=self.user, name='Eggs')
-        Ingredient.objects.create(user=self.user, name='Lentils')
+        ing = Ingredient.objects.create(user=self.user, name="Eggs")
+        Ingredient.objects.create(user=self.user, name="Lentils")
         recipe1 = Recipe.objects.create(
-            title='Eggs benedict',
+            title="Eggs benedict",
             time_minutes=50,
-            price=Decimal('7.50'),
+            price=Decimal("7.50"),
             user=self.user,
         )
         recipe2 = Recipe.objects.create(
-            title='Herb Eggs',
+            title="Herb Eggs",
             time_minutes=20,
-            price=Decimal('4.00'),
+            price=Decimal("4.00"),
             user=self.user,
         )
         recipe1.ingredients.add(ing)
         recipe2.ingredients.add(ing)
 
-        res = self.client.get(INGREDIENTS_URL, {'assigned_only': 1})
+        res = self.client.get(INGREDIENTS_URL, {"assigned_only": 1})
 
         self.assertEqual(len(res.data), 1)
