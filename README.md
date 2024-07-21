@@ -2242,3 +2242,198 @@ ALLOWED_HOSTS.extend(
 4. Connect via SSH
 5. Use same SSH key as for Github
 
+
+### `Setps`
+* Go to the [AWS site]('https://aws.amazon.com/')
+* Create your account
+* Open terminal in your local system
+  * Run `cd ~/`
+  * Run `ls -1`
+  * Run `cd .ssh`
+  * Run `ls`
+  * Run `ssh-keygen -t rsa -b 4096`
+  * Run `/Users/demo/.ssh/aws_id_rsa`
+  * Run `cat aws_id_rsa.pub` and copy the content
+* Add it to the EC2 key pairs
+* Add the server ip address to the shh key
+  * Run `ssh ec2-user@<ip-address>` in the above `.ssh` directory
+* Run `ssh-keygen -t ed25519 -b 4096`
+  * Run `car ~/.ssh/id_ed25519.pub`
+  * We are going to set the above public key on our remote server
+  * Go to the github account => settings
+  * Then go to the `deploy key` and set the name as `server` and paste the key
+
+# Deployment
+
+## Server Setup
+
+### Creating an SSH Deploy Key
+
+To create a new SSH key which can be used as the deploy key, run the command below:
+
+```sh
+ssh-keygen -t ed25519 -b 4096
+```
+
+Note: This will create a new `ed25519` key, which is the recommended key for GitHub.
+
+To display the public key, run:
+
+```sh
+cat ~/.ssh/id_ed25519.pub
+```
+
+
+### Install and Configure Depdencies
+
+Use the below commands to configure the EC2 virtual machine running Amazon Linux 2.
+
+Install Git:
+
+```sh
+sudo yum install git -y
+```
+
+Install Docker, make it auto start and give `ec2-user` permissions to use it:
+
+```sh
+sudo amazon-linux-extras install docker -y
+sudo systemctl enable docker.service
+sudo systemctl start docker.service
+sudo usermod -aG docker ec2-user
+exit
+```
+
+Note: After running the above, you need to logout by typing `exit` and re-connect to the server in order for the permissions to come into effect.
+
+Install Docker Compose:
+
+```sh
+sudo curl -L "https://github.com/docker/compose/releases/download/1.29.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+```
+
+
+## Running Docker Service
+
+
+### Cloning Code
+
+Use Git to clone your project and update the `.env` file with the correct data and generate a secret key for the DJANGO_SECRET_KEY
+
+```sh
+git clone <project ssh url>
+ls
+cp .env.sample .env
+nano .env
+```
+
+Note: Ensure you create an `.env` file before starting the service.
+
+ 
+### Running Service
+
+To start the service, run:
+
+```sh
+docker-compose -f docker-compose-deploy.yml up -d
+```
+
+Check the ip-address if it's running and then set the superuser
+
+```sh
+docker-compose -f docker-compose-deploy.yml run --rm app sh -c "python manage.py createsuperuser"
+```
+
+### Stopping Service
+
+To stop the service, run:
+
+```sh
+docker-compose -f docker-compose-deploy.yml down
+```
+
+To stop service and **remove all data**, run:
+
+```sh
+docker-compose -f docker-compose-deploy.yml down --volumes
+```
+
+
+### Viewing Logs
+
+To view container logs, run:
+
+```sh
+docker-compose -f docker-compose-deploy.yml logs
+```
+
+Add the `-f` to the end of the command to follow the log output as they come in.
+
+
+### Updating App
+
+If you push new versions, pull new changes to the server by running the following command:
+
+```
+git pull origin
+```
+
+Then, re-build the `app` image so it includes the latest code by running:
+
+```sh
+docker-compose -f docker-compose-deploy.yml build app
+```
+
+To apply the update, run:
+
+```sh
+docker-compose -f docker-compose-deploy.yml up --no-deps -d app
+```
+
+The `--no-deps -d` ensures that the dependant services (such as `proxy`) do not restart.
+
+
+### Health Check Test
+* Create new test file in `app/core/tests/test_health_check.py`
+```py
+"""Tests for the health check API"""
+from django.test import TestCase
+from django.urls import reverse
+
+from rest_framework import status
+from rest_framework.test import APIClient
+
+class HealthCheckTests(TestCase):
+    """Test for the health check API"""
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_health_check(self):
+        """Test for the health check API"""
+        url = reverse("health-check")
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+```
+
+* Create a View for the health check API `app/core/views.py`
+
+```py
+"""Core views for application"""
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+
+@api_view(['GET'])
+def health_check(request):
+    """Return successful response."""
+    return Response({'healthy:', True})
+```
+
+* Add the `health-check` to the `app/app/urls.py`
+
+```py
+    path('api/health-check', core_views.health_check, name='health-check')
+```
