@@ -295,8 +295,9 @@ DATABASES = {
 * meanwhile the database service will start Postgres and the app service will start app service
 * But at this point the database service has not completed starting the postgres service and it's not ready, on the other-hand the django app is ready and trying to connect to the database
 * at this point we will get an error. and this error appears on the first time, soo we will have to restart the service and it will work
+<img width="1129" alt="dockerTimeLine" src="https://github.com/user-attachments/assets/94359762-3792-4ec9-944c-a0d4446184e5">
 
-![dockerTimeLine.png](..%2F..%2F..%2F..%2F..%2FDesktop%2FdockerTimeLine.png)
+
 
 #### `Solution`
 1. Make Django `wait for db`
@@ -309,7 +310,8 @@ DATABASES = {
 * Now at this point the Django-app service will wait for the database service to be ready, and it will check if it's ready
 * and once the database is ready it will connect with the database
 
-![newDockerTimeLine.png](..%2F..%2F..%2F..%2F..%2FDesktop%2FnewDockerTimeLine.png)
+<img width="1129" alt="newDockerTimeLine" src="https://github.com/user-attachments/assets/3a9f6956-35e9-4229-b0e2-a8979e9293cc">
+
 
 ### Fixing Database Race Condition
 1. Create a django app called `core`
@@ -2046,8 +2048,9 @@ There are various ways to deploy Django
 
 
 ## `1. Docker Compose setup`
+<img width="1279" alt="docker-compose-setup-deployment" src="https://github.com/user-attachments/assets/1b0ea51e-fa9b-4fcf-9935-5e8ec02d49de">
 
-![docker-compose-setup-deployment.png](..%2F..%2F..%2F..%2F..%2FDesktop%2Fdocker-compose-setup-deployment.png)
+
 
 #  `uWSGI Server`
 1. We have to add the below things to the `Dockerfile`
