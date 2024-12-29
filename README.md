@@ -2339,6 +2339,8 @@ Note: Ensure you create an `.env` file before starting the service.
 To start the service, run:
 
 ```sh
+sudo dnf install libxcrypt-compat
+
 docker-compose -f docker-compose-deploy.yml up -d
 ```
 
